@@ -63,9 +63,8 @@ def wig_reader(infile, chrom_sizes=None, informat='wiggle', bin_size = 2000):
 	'''
 	if informat.upper()=='WIGGLE':
 		point_num = 1
-		in_file = open(infile)
 		count = 0
-		for fields in bx.wiggle.Reader( in_file ):
+		for fields in bx.wiggle.Reader( infile ):
 			count += 1
 			if count ==1:
 				chrom = fields[0]

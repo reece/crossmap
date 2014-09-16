@@ -32,15 +32,15 @@ from cmmodule  import myutils
 from cmmodule  import fasta
 from cmmodule  import bgrMerge
 
-__author__ = "Liguo Wang"
-__contributor__="Liguo Wang"
+__author__ = "Liguo Wang, Hao Zhao"
+__contributor__="Liguo Wang, Hao Zhao"
 __copyright__ = "Copyright 2013, Mayo Clinic"
 __credits__ = []
 __license__ = "GPL"
-__version__="0.1.4"
+__version__="0.1.5"
 __maintainer__ = "Liguo Wang"
 __email__ = "wang.liguo@mayo.edu; wangliguo78@gmail.com"
-__status__ = "4 - Beta"
+__status__ = "Production"
 
 def printlog (mesg_lst):
 	'''print progress into stderr'''
@@ -266,9 +266,9 @@ def crossmap_vcf_file(mapping, infile,outfile, liftoverfile, refgenome):
 			continue
 		fields = line.split()
 		if fields[0].startswith('#'):
-			print >>FILE_OUT, "#liftOverProgram=CrossMap(https://sourceforge.net/projects/crossmap/)"
-			print >>FILE_OUT, "#liftOverFile=" + liftoverfile
-			print >>FILE_OUT, "#liftOverTime=" + datetime.date.today().strftime("%B%d,%Y")
+			print >>FILE_OUT, "##liftOverProgram=CrossMap(https://sourceforge.net/projects/crossmap/)"
+			print >>FILE_OUT, "##liftOverFile=" + liftoverfile
+			print >>FILE_OUT, "##liftOverTime=" + datetime.date.today().strftime("%B%d,%Y")
 			print >>FILE_OUT,line
 			print >>UNMAP, line
 		else:
@@ -643,31 +643,37 @@ def crossmap_bam_file(mapping, chainfile, infile,  outfile_prefix, chrom_size, I
 				if old_alignment.is_read1: new_alignment.flag = new_alignment.flag | 0x40
 				if old_alignment.is_read2: new_alignment.flag = new_alignment.flag | 0x80
 				
-				if not old_alignment.is_unmapped:
-					read1_chr = samfile.getrname(old_alignment.tid)
+				if old_alignment.is_unmapped:
+					OUT_FILE_UNMAP.write(old_alignment)
+					failed += 1
+					continue
+
+				else:	#old alignment is mapped
+					try:
+						read1_chr = samfile.getrname(old_alignment.tid)
+					except:
+						OUT_FILE_UNMAP.write(old_alignment)
+						failed += 1
+						continue
 					read1_strand = '-' if old_alignment.is_reverse else '+'
 					read1_start = old_alignment.pos
 					read1_end = old_alignment.aend
 					read1_maps = map_coordinates(mapping, read1_chr, read1_start, read1_end, read1_strand)
 				
-				if not old_alignment.mate_is_unmapped:
-					read2_chr = samfile.getrname(old_alignment.rnext)
-					read2_strand = '-' if old_alignment.mate_is_reverse else '+'
-					read2_start = old_alignment.pnext
-					read2_end = read2_start + 1
-					read2_maps = map_coordinates(mapping, read2_chr, read2_start, read2_end, read2_strand)
-				# [('chr1', 246974830, 246974833, '+' ), ('chr1', 248908207, 248908210, '+' )]
+					if not old_alignment.mate_is_unmapped:
+						try:
+							read2_chr = samfile.getrname(old_alignment.rnext)									
+							read2_strand = '-' if old_alignment.mate_is_reverse else '+'
+							read2_start = old_alignment.pnext
+							read2_end = read2_start + 1
+							read2_maps = map_coordinates(mapping, read2_chr, read2_start, read2_end, read2_strand)
+							# [('chr1', 246974830, 246974833, '+' ), ('chr1', 248908207, 248908210, '+' )]
+						except:
+							read2_maps = None
 				
-				
-				
-				# read 1 is unmapped before conversion
-				if old_alignment.is_unmapped:
-					OUT_FILE_UNMAP.write(old_alignment)
-					failed += 1
-					continue
 				
 				# read 1 is unmapped after conversion	
-				elif read1_maps is None:														 
+				if read1_maps is None:														 
 					new_alignment.flag = new_alignment.flag | 0x4
 					
 					# read2 is unmapped before conversion
@@ -743,22 +749,8 @@ def crossmap_bam_file(mapping, chainfile, infile,  outfile_prefix, chrom_size, I
 					# 6
 					new_alignment.cigar = old_alignment.cigar
 					
-					# before conversion
-					if old_alignment.mate_is_unmapped:
-						# 2
-						new_alignment.flag = new_alignment.flag | 0x8
-						# 7
-						new_alignment.rnext = name_to_id[read1_maps[1][0]]
-						# 8
-						new_alignment.pnext =  0
-						# 9
-						new_alignment.tlen = 0
-					
-						OUT_FILE.write(new_alignment)
-						continue
-					
-					# read2 is unmapped after conversion
-					if read2_maps is None:
+					# read2 unmapped before or after conversion
+					if (old_alignment.mate_is_unmapped) or (read2_maps is None):
 						# 2
 						new_alignment.flag = new_alignment.flag | 0x8
 						# 7
@@ -818,22 +810,8 @@ def crossmap_bam_file(mapping, chainfile, infile,  outfile_prefix, chrom_size, I
 					# 6
 					new_alignment.cigar = old_alignment.cigar
 
-
-					if old_alignment.mate_is_unmapped:
-						# 2
-						new_alignment.flag = new_alignment.flag | 0x8
-						# 7
-						new_alignment.rnext = name_to_id[read1_maps[1][0]]
-						# 8
-						new_alignment.pnext =  0
-						# 9
-						new_alignment.tlen = 0
-					
-						OUT_FILE.write(new_alignment)
-						continue
-					
 					# read2 is unmapped
-					if read2_maps is None:
+					if (old_alignment.mate_is_unmapped) or (read2_maps is None):
 						# 2
 						new_alignment.flag = new_alignment.flag | 0x8
 						# 7
@@ -845,7 +823,7 @@ def crossmap_bam_file(mapping, chainfile, infile,  outfile_prefix, chrom_size, I
 					
 						OUT_FILE.write(new_alignment)
 						continue
-
+					
 					# read2 is unique mapped
 					elif len(read2_maps)==2:
 						# 2
@@ -1049,7 +1027,7 @@ def crossmap_wig_file(mapping, in_file, out_prefix, source_chrom_size, taget_chr
 def general_help():
 	desc="""CrossMap is a program for convenient conversion of genome coordinates and genome\
 annotation files between assemblies (eg. lift from human hg18 to hg19 or vice versa).\
-It support file in BAM, SAM, BED, Wiggle, BigWig, GFF, GTF, VCF, etc."""
+It supports file in BAM, SAM, BED, Wiggle, BigWig, GFF, GTF and VCF format."""
 	
 	print >>sys.stderr, "Program: %s (v%s)" % ("CrossMap", __version__)
 	print >>sys.stderr, "\nDescription: \n%s" % '\n'.join('  '+i for i in wrap(desc,width=80))
@@ -1061,7 +1039,7 @@ It support file in BAM, SAM, BED, Wiggle, BigWig, GFF, GTF, VCF, etc."""
 def bed_help():
 	msg =[
 	('Usage:', "CrossMap.py bed input_chain_file input_bed_file [output_file]"),
-	('Description:', "\"input_chain_file\" and \"input_bed_file\" can be regular or compressed (*.gz, *.Z, *.z, *.bz, *.bz2, *.bzip2) file, local file or URL (http://, https://, ftp://) pointing to remote file. BED file must have at least 3 columns (chrom, start, end) and no more than 12 columns. If  no \"output_file\" was specified, output will be directed to screen (console). BED format: http://genome.ucsc.edu/FAQ/FAQformat.html#format1"),
+	('Description:', "\"input_chain_file\" and \"input_bed_file\" can be regular or compressed (*.gz, *.Z, *.z, *.bz, *.bz2, *.bzip2) file, local file or URL (http://, https://, ftp://) pointing to remote file. BED format file must have at least 3 columns (chrom, start, end) and no more than 12 columns. If  no \"output_file\" is specified, output will be directed to the screen (console). BED format: http://genome.ucsc.edu/FAQ/FAQformat.html#format1"),
 	('Example:', "CrossMapy.py bed hg18ToHg19.over.chain.gz test.hg18.bed test.hg19.bed  # write output to \"test.hg19.bed\""),
 	('Example:', "CrossMapy.py bed hg18ToHg19.over.chain.gz test.hg18.bed  				 # write output to screen"),
 	]
@@ -1071,7 +1049,7 @@ def bed_help():
 def gff_help():
 	msg =[
 	('Usage:', "CrossMap.py gff input_chain_file input_gff_file output_file"),
-	('Description:', "\"input_chain_file\" can be regular or compressed (*.gz, *.Z, *.z, *.bz, *.bz2, *.bzip2) file, local file or URL (http://, https://, ftp://) pointing to remote file. input file must be in GFF or GTF format. GFF format: http://genome.ucsc.edu/FAQ/FAQformat.html#format3 GTF format: http://genome.ucsc.edu/FAQ/FAQformat.html#format4"),
+	('Description:', "\"input_chain_file\" can be regular or compressed (*.gz, *.Z, *.z, *.bz, *.bz2, *.bzip2) file, local file or URL (http://, https://, ftp://) pointing to remote file. Input file must be in GFF or GTF format. GFF format: http://genome.ucsc.edu/FAQ/FAQformat.html#format3 GTF format: http://genome.ucsc.edu/FAQ/FAQformat.html#format4"),
 	('Example:', "CrossMap.py gff  hg19ToHg18.over.chain.gz test.hg19.gtf test.hg18.gtf  # write output to \"test.hg18.gff\""),
 	('Example:', "CrossMap.py gff  hg19ToHg18.over.chain.gz test.hg19.gtf  # write output to screen"),
 	]
@@ -1103,7 +1081,7 @@ def bam_help():
 def vcf_help():
 	msg =[
 	("usage:","CrossMap.py vcf input_chain_file input_VCF_file ref_genome_file output_file"),
-	("Description:", "\"input_chain_file\" and \"input_VCF_file\" can be regular or compressed (*.gz, *.Z, *.z, *.bz, *.bz2, *.bzip2) file, local file or URL (http://, https://, ftp://) pointing to remote file. \"ref_genome_file\" is genome sequence file of 'target assembly' in FASTA foramt."),
+	("Description:", "\"input_chain_file\" and \"input_VCF_file\" can be regular or compressed (*.gz, *.Z, *.z, *.bz, *.bz2, *.bzip2) file, local file or URL (http://, https://, ftp://) pointing to remote file. \"ref_genome_file\" is genome sequence file of 'target assembly' in FASTA format."),
 	("Example:", " CrossMap.py vcf hg19ToHg18.over.chain.gz test.hg19.vcf hg18.fa test.hg18.vcf"),
 	]
 	for i,j in msg:
