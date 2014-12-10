@@ -37,7 +37,7 @@ __contributor__="Liguo Wang, Hao Zhao"
 __copyright__ = "Copyright 2013, Mayo Clinic"
 __credits__ = []
 __license__ = "GPL"
-__version__="0.1.5"
+__version__="0.1.6"
 __maintainer__ = "Liguo Wang"
 __email__ = "wang.liguo@mayo.edu; wangliguo78@gmail.com"
 __status__ = "Production"
@@ -202,15 +202,17 @@ def map_coordinates(mapping, q_chr, q_start, q_end, q_strand = '+', print_match=
 			t_strand = targets[0].value[3]
 			
 			(chr, real_start, real_end)  = intersectBed((q_chr,q_start,q_end),(q_chr,s_start,s_end))
-			l_offset = real_start - s_start
-			r_offset = real_end - s_end
-			size = real_end - real_start
+			l_offset = abs(real_start - s_start)
+			#r_offset = real_end - s_end
+			size = abs(real_end - real_start)
 			
 			matches.append( (chr, real_start, real_end,q_strand))
 			if t_strand == '+':
-				matches.append( (t_chrom, t_start + l_offset, t_start + l_offset + size, q_strand))
+				i_start = t_start + l_offset
+				matches.append( (t_chrom, i_start, i_start + size, q_strand))
 			elif t_strand == '-':
-				matches.append( (t_chrom, t_start + r_offset,  t_start + r_offset + size, q_strand))
+				i_start = t_end - l_offset - size
+				matches.append( (t_chrom, i_start,  i_start + size, q_strand))
 			else:
 				raise Exception("Unknown strand: %s. Can only be '+' or '-'." % q_strand)
 			
@@ -225,15 +227,17 @@ def map_coordinates(mapping, q_chr, q_start, q_end, q_strand = '+', print_match=
 				
 				(chr, real_start, real_end)  = intersectBed((q_chr,q_start,q_end),(q_chr,s_start,s_end))
 
-				l_offset = real_start - s_start
-				r_offset = real_end - s_end
-				size = real_end - real_start
+				l_offset = abs(real_start - s_start)
+				#r_offset = abs(real_end - s_end)
+				size = abs(real_end - real_start)
 
 				matches.append( (chr, real_start, real_end,q_strand) )
 				if t_strand == '+':
-					matches.append( (t_chrom, t_start + l_offset, t_start + l_offset + size, q_strand))
+					i_start = t_start + l_offset
+					matches.append( (t_chrom, i_start, i_start + size, q_strand))
 				elif t_strand == '-':
-					matches.append( (t_chrom, t_start + r_offset,  t_start + r_offset + size, q_strand))
+					i_start = t_end - l_offset - size
+					matches.append( (t_chrom, i_start,  i_start + size, q_strand))
 				else:
 					raise Exception("Unknown strand: %s. Can only be '+' or '-'." % q_strand)
 	
@@ -1091,7 +1095,7 @@ def vcf_help():
 if __name__=='__main__':
 
 	# test read_chain_file()
-	#(mapTree,targetChromSizes, sourceChromSizes) = read_chain_file(sys.argv[1], print_table=False)
+	#(mapTree,targetChromSizes, sourceChromSizes) = read_chain_file(sys.argv[1], print_table=True)
 	
 	#q_chr, q_start, q_end, q_strand = '+', print_match=False):
 	#map_coordinates(mapTree, 'chr1', 45953452, 45953456, '+', print_match=True)

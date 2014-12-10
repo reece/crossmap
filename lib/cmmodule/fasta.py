@@ -42,8 +42,9 @@ class Fasta:
 				if line.startswith('>'):
 					if(tmpseq):
 						self.seqs[name]=tmpseq
-					name='_'.join(line[1:].split(' '))
-					tmpseq =''
+					name=line.split()[0][1:]	
+					if not name.startswith('chr'):name = 'chr' + name	#changed. Only to process reference genome file. 
+					tmpseq =''																				#Chromosome IDs were changed into "chr1", "chr2", ... ,"chrY",etc.
 					self.IDs.append(name)
 					#print >>sys.stderr,"\tloading "+name+' ...'
 				else:
