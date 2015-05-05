@@ -37,7 +37,7 @@ __contributor__="Liguo Wang, Hao Zhao"
 __copyright__ = "Copyright 2013, Mayo Clinic"
 __credits__ = []
 __license__ = "GPL"
-__version__="0.1.6"
+__version__="0.1.7"
 __maintainer__ = "Liguo Wang"
 __email__ = "wang.liguo@mayo.edu; wangliguo78@gmail.com"
 __status__ = "Production"
@@ -182,7 +182,7 @@ def read_chain_file (chain_file, print_table=False):
 	return (maps,target_chromSize, source_chromSize)	
 	
 
-def map_coordinates(mapping, q_chr, q_start, q_end, q_strand = '+', print_match=False):
+def map_coordinates(mapping, q_chr, q_start, q_end, q_strand='+', print_match=False):
 	'''Map coordinates from source assembly to target assembly'''
 	
 	matches=[]
@@ -209,10 +209,16 @@ def map_coordinates(mapping, q_chr, q_start, q_end, q_strand = '+', print_match=
 			matches.append( (chr, real_start, real_end,q_strand))
 			if t_strand == '+':
 				i_start = t_start + l_offset
-				matches.append( (t_chrom, i_start, i_start + size, q_strand))
+				if q_strand == '+':
+					matches.append( (t_chrom, i_start, i_start + size, t_strand))
+				else:
+					matches.append( (t_chrom, i_start, i_start + size, complement[t_strand]))
 			elif t_strand == '-':
 				i_start = t_end - l_offset - size
-				matches.append( (t_chrom, i_start,  i_start + size, q_strand))
+				if q_strand == '+':
+					matches.append( (t_chrom, i_start,  i_start + size, t_strand))
+				else:
+					matches.append( (t_chrom, i_start,  i_start + size, complement[t_strand]))
 			else:
 				raise Exception("Unknown strand: %s. Can only be '+' or '-'." % q_strand)
 			
@@ -234,10 +240,16 @@ def map_coordinates(mapping, q_chr, q_start, q_end, q_strand = '+', print_match=
 				matches.append( (chr, real_start, real_end,q_strand) )
 				if t_strand == '+':
 					i_start = t_start + l_offset
-					matches.append( (t_chrom, i_start, i_start + size, q_strand))
+					if q_strand == '+':
+						matches.append( (t_chrom, i_start, i_start + size, t_strand))
+					else:
+						matches.append( (t_chrom, i_start, i_start + size, complement[t_strand]))
 				elif t_strand == '-':
 					i_start = t_end - l_offset - size
-					matches.append( (t_chrom, i_start,  i_start + size, q_strand))
+					if q_strand == '+':
+						matches.append( (t_chrom, i_start,  i_start + size, t_strand))
+					else:
+						matches.append( (t_chrom, i_start,  i_start + size, complement[t_strand]))
 				else:
 					raise Exception("Unknown strand: %s. Can only be '+' or '-'." % q_strand)
 	
@@ -1125,6 +1137,7 @@ if __name__=='__main__':
 	
 	#print options
 	#print args
+	
 	
 	commands = {
 	'bed':'convert genome cooridnate or annotation file in BED or BED-like format.',

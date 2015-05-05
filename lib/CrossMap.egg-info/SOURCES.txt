@@ -1,5 +1,6 @@
 MANIFEST.in
 distribute_setup.py
+setup.cfg
 setup.py
 bin/CrossMap.py
 data/GRCh37ToHg19.over.chain.gz
