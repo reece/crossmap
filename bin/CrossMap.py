@@ -13,6 +13,7 @@ import optparse
 import collections
 import sets
 import subprocess
+import string
 from textwrap import wrap
 from time import strftime
 
@@ -37,7 +38,7 @@ __contributor__="Liguo Wang, Hao Zhao"
 __copyright__ = "Copyright 2013, Mayo Clinic"
 __credits__ = []
 __license__ = "GPL"
-__version__="0.1.7"
+__version__="0.1.8"
 __maintainer__ = "Liguo Wang"
 __email__ = "wang.liguo@mayo.edu; wangliguo78@gmail.com"
 __status__ = "Production"
@@ -280,7 +281,8 @@ def crossmap_vcf_file(mapping, infile,outfile, liftoverfile, refgenome):
 			print >>FILE_OUT,line
 			print >>UNMAP, line
 			continue
-		fields = line.split()
+		#fields = line.split()
+		fields = string.split(line,maxsplit=7)
 		if fields[0].startswith('#'):
 			print >>FILE_OUT, "##liftOverProgram=CrossMap(https://sourceforge.net/projects/crossmap/)"
 			print >>FILE_OUT, "##liftOverFile=" + liftoverfile
