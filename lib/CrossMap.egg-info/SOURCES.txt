@@ -1,4 +1,5 @@
 MANIFEST.in
+crossmap-allow-system-pysam.patch
 distribute_setup.py
 setup.cfg
 setup.py
@@ -17,7 +18,7 @@ data/hg38ToHg19.over.chain.gz
 data/mm10ToMm9.over.chain.gz
 data/mm9ToMm10.over.chain.gz
 data/mm9ToMm8.over.chain.gz
-doc/CrossMap.pdf
+doc/CrossMap_manual.pdf
 doc/README.txt
 lib/psyco_full.py
 lib/CrossMap.egg-info/PKG-INFO
@@ -347,4 +348,3 @@ lib/tabix/kstring.c.pysam.c
 lib/tabix/kstring.h
 lib/tabix/pysam.h
 lib/tabix/tabix.h
-test/test.py

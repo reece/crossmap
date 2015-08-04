@@ -3,6 +3,7 @@ include COPYING
 include INSTALL
 include KNOWN_BUGS
 include THANKS
+include crossmap-allow-system-pysam.patch
 
 include distribute_setup.py
 recursive-include lib/src *.h

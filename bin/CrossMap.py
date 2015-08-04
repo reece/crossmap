@@ -38,7 +38,7 @@ __contributor__="Liguo Wang, Hao Zhao"
 __copyright__ = "Copyright 2013, Mayo Clinic"
 __credits__ = []
 __license__ = "GPL"
-__version__="0.1.8"
+__version__="0.1.9"
 __maintainer__ = "Liguo Wang"
 __email__ = "wang.liguo@mayo.edu; wangliguo78@gmail.com"
 __status__ = "Production"
@@ -265,13 +265,17 @@ def map_coordinates(mapping, q_chr, q_start, q_end, q_strand='+', print_match=Fa
 def crossmap_vcf_file(mapping, infile,outfile, liftoverfile, refgenome):
 	'''Convert genome coordinate in VCF format.'''
 	
-	printlog(['Load reference genome:', refgenome])
-	ref = fasta.Fasta(refgenome)
+	#index refegenome file if it hasn't been done
+	if not os.path.exists(refgenome + '.fai'):
+		printlog(["Creating index for", refgenome])
+		pysam.faidx(refgenome)
+	
 	FILE_OUT = open(outfile ,'w')
 	UNMAP = open(outfile + '.unmap','w')
 	
 	total = 0
 	fail = 0
+	withChr = False
 	
 	for line in ireader.reader(infile):
 		if not line.strip():
@@ -286,12 +290,14 @@ def crossmap_vcf_file(mapping, infile,outfile, liftoverfile, refgenome):
 		if fields[0].startswith('#'):
 			print >>FILE_OUT, "##liftOverProgram=CrossMap(https://sourceforge.net/projects/crossmap/)"
 			print >>FILE_OUT, "##liftOverFile=" + liftoverfile
+			print >>FILE_OUT, "##new_reference_genome=" + refgenome
 			print >>FILE_OUT, "##liftOverTime=" + datetime.date.today().strftime("%B%d,%Y")
 			print >>FILE_OUT,line
 			print >>UNMAP, line
 		else:
 			total += 1
 			if fields[0].startswith('chr'):
+				withChr = True
 				chrom = fields[0]
 			else:
 				chrom = 'chr' + fields[0]
@@ -304,11 +310,16 @@ def crossmap_vcf_file(mapping, infile,outfile, liftoverfile, refgenome):
 				continue
 			if len(a) == 2:
 				# update chrom
-				fields[0] = str(a[1][0]).replace('chr','')
+				if withChr is False:
+					fields[0] = str(a[1][0]).replace('chr','')
 				# update start coordinate
 				fields[1] = a[1][1] + 1
+				
+				
 				# update ref allele
-				fields[3] = ref.fetchSeq(chr=a[1][0], st = a[1][1], end = a[1][2])
+				tmp = pysam.faidx(refgenome,str(a[1][0]) + ':' + str(a[1][1]+1) + '-' + str(a[1][2]))
+				fields[3] =tmp[-1].rstrip('\n\r').upper()
+				
 				if fields[3] != fields[4]:
 					print >>FILE_OUT, '\t'.join(map(str, fields))
 				else:
@@ -387,7 +398,7 @@ def crossmap_bed_file(mapping, inbed,outfile=None):
 					fields[0] = a[1][0]
 					fields[1] = a[1][1]
 					fields[2] = a[1][2]
-					for i in range(0,len(fields)):
+					for i in range(0,len(fields)):	#update the strand information
 						if fields[i] in ['+','-']:
 							fields[i] = a[1][3]
 					
@@ -402,7 +413,7 @@ def crossmap_bed_file(mapping, inbed,outfile=None):
 						fields[0] = a[j][0]
 						fields[1] = a[j][1]
 						fields[2] = a[j][2]
-						for i in range(0,len(fields)):
+						for i in range(0,len(fields)):	#update the strand information
 							if fields[i] in ['+','-']:
 								fields[i] = a[j][3]
 						
@@ -540,6 +551,7 @@ def crossmap_gff_file(mapping, ingff,outfile=None):
 		try:
 			start = int(fields[3]) - 1	#0-based
 			end =  int(fields[4])/1
+			feature_size = end - start
 		except:
 			print >>sys.stderr, 'Cannot recognize \"start\" and \"end\" coordinates. Skip ' + line
 			continue
@@ -553,12 +565,15 @@ def crossmap_gff_file(mapping, ingff,outfile=None):
 		a = map_coordinates(mapping, chrom,start,end,strand)
 		if a is None:
 			if outfile is None:
-				print line + '\tfail'
+				print line + '\tfail (no match to target assembly)'
 			continue			
 		if len(a) !=2:
 			if outfile is None:
-				print line + '\tfail'
+				print line + '\tfail (multpile match to target assembly)'
 		else:
+			if (int(a[1][2]) - int(a[1][1])) != feature_size:	# check if it is exact match
+				if outfile is None:
+					print line + '\tfail (not exact match)'
 			fields[0] = a[1][0]			# chrom
 			fields[3] = a[1][1] + 1		# start, 1-based 
 			fields[4] = a[1][2]
@@ -1092,7 +1107,7 @@ def bigwig_help():
 		print >>sys.stderr, '\n' + i + '\n' + '\n'.join(['  ' + k for k in wrap(j,width=80)])
 
 def bam_help():
-	usage="CrossMap.py bam input_chain_file input_bam_file output_file [optional] "
+	usage="CrossMap.py bam input_chain_file input_bam_file output_file [options] "
 	import optparse
 	parser.print_help()
 
@@ -1211,24 +1226,27 @@ if __name__=='__main__':
 				sys.exit(0)
 		elif sys.argv[1].lower() == 'bam':
 		#def crossmap_bam_file(mapping, chainfile, infile,  outfile_prefix, chrom_size, IS_size=200, IS_std=30, fold=3):	
-			usage="CrossMap.py bam input_chain_file input_bam_file output_file [optional]"
+			usage="CrossMap.py bam input_chain_file input_bam_file output_file [options]\nNote: If output_file == STDOUT, CrossMap will write BAM file to the screen"
 			parser = optparse.OptionParser(usage, add_help_option=False)
-			parser.add_option("-m", action="store",type="float",dest="insert_size", default=200.0, help="Average insert size of pair-end sequencing (bp). [default=%default]")
-			parser.add_option("-s", action="store",type="float",dest="insert_size_stdev", default=30.0, help="Stanadard deviation of insert size. [default=%default]" )
-			parser.add_option("-t", action="store",type="float",dest="insert_size_fold", default=3.0, help="A mapped pair is considered as \"proper pair\" if both ends mapped to different strand and the distance between them is less then '-t' * stdev from the mean. [default=%default]")
+			parser.add_option("-m", "--mean", action="store",type="float",dest="insert_size", default=200.0, help="Average insert size of pair-end sequencing (bp). [default=%default]")
+			parser.add_option("-s", "--stdev", action="store",type="float",dest="insert_size_stdev", default=30.0, help="Stanadard deviation of insert size. [default=%default]" )
+			parser.add_option("-t", "--times", action="store",type="float",dest="insert_size_fold", default=3.0, help="A mapped pair is considered as \"proper pair\" if both ends mapped to different strand and the distance between them is less then '-t' * stdev from the mean. [default=%default]")
 			(options,args)=parser.parse_args()
 
-			if len(sys.argv) == 5:
+			if len(sys.argv) >= 5:
+				print >>sys.stderr, "Insert size = %f" % (options.insert_size)
+				print >>sys.stderr, "Insert size stdev = %f" % (options.insert_size_stdev)
+				print >>sys.stderr, "Number of stdev from the mean = %f" % (options.insert_size_fold)
+				
 				chain_file = sys.argv[2]
 				in_file = sys.argv[3]
 				out_file = sys.argv[4]
 				(mapTree,targetChromSizes, sourceChromSizes) = read_chain_file(chain_file)
-				crossmap_bam_file(mapping = mapTree, chainfile = chain_file, infile = in_file, outfile_prefix = out_file, chrom_size = targetChromSizes, IS_size=options.insert_size, IS_std=options.insert_size_stdev, fold=options.insert_size_fold)
-			elif len(sys.argv) == 4:
-				chain_file = sys.argv[2]
-				in_file = sys.argv[3]
-				(mapTree,targetChromSizes, sourceChromSizes) = read_chain_file(chain_file)
-				crossmap_bam_file(mapping = mapTree, chainfile = chain_file, infile = in_file, outfile_prefix = None, chrom_size = targetChromSizes, IS_size=options.insert_size, IS_std=options.insert_size_stdev, fold=options.insert_size_fold)
+				if sys.argv[4] == "STDOUT":
+					crossmap_bam_file(mapping = mapTree, chainfile = chain_file, infile = in_file, outfile_prefix = None, chrom_size = targetChromSizes, IS_size=options.insert_size, IS_std=options.insert_size_stdev, fold=options.insert_size_fold)			
+				else:
+					crossmap_bam_file(mapping = mapTree, chainfile = chain_file, infile = in_file, outfile_prefix = out_file, chrom_size = targetChromSizes, IS_size=options.insert_size, IS_std=options.insert_size_stdev, fold=options.insert_size_fold)
+				
 			else:
 				parser.print_help()
 		elif sys.argv[1].lower() == 'vcf':
