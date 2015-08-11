@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/python
 '''---------------------------------------------------------------------------------------
 CrossMap: lift over genomics coordinates between assemblies.
 Support BED, GFF/GTF, BAM/SAM, BigWig/Wig, etc.
@@ -22,13 +22,11 @@ from bx.bbi.bigwig_file import BigWigFile
 from bx.intervals import *
 import numpy as np
 import datetime
-
 from cmmodule  import ireader
 from cmmodule  import BED
 from cmmodule  import annoGene
 from cmmodule  import bam_cigar
 from cmmodule  import sam_header
-from cmmodule  import wig_reader
 from cmmodule  import myutils
 from cmmodule  import fasta
 from cmmodule  import bgrMerge
@@ -38,7 +36,7 @@ __contributor__="Liguo Wang, Hao Zhao"
 __copyright__ = "Copyright 2013, Mayo Clinic"
 __credits__ = []
 __license__ = "GPL"
-__version__="0.1.9"
+__version__="0.2"
 __maintainer__ = "Liguo Wang"
 __email__ = "wang.liguo@mayo.edu; wangliguo78@gmail.com"
 __status__ = "Production"
@@ -51,6 +49,87 @@ def printlog (mesg_lst):
 		msg = "@ " + strftime("%Y-%m-%d %H:%M:%S") + ": " + ' '.join(mesg_lst)
 	print >>sys.stderr,msg
 
+def parse_header( line ):
+        return dict( [ field.split( '=' ) for field in line.split()[1:] ] )
+        
+def wiggleReader( f ):
+	"""
+    Iterator yielding chrom, start, end, strand, value.
+    Values are zero-based, half-open.
+    Regions which lack a score are ignored.
+	"""
+	current_chrom = None
+	current_pos = None
+	current_step = None
+
+    # always for wiggle data
+	strand = '+'
+
+	mode = "bed"
+	for line in ireader.reader(f):
+		if line.isspace() or line.startswith( "track" ) or line.startswith( "#" ) or line.startswith( "browser" ):
+			continue
+		elif line.startswith( "variableStep" ):
+			header = parse_header( line )
+			current_chrom = header['chrom']
+			current_pos = None
+			current_step = None
+			if 'span' in header: current_span = int( header['span'] )
+			else: current_span = 1
+			mode = "variableStep"
+		elif line.startswith( "fixedStep" ):
+			header = parse_header( line )
+			current_chrom = header['chrom']
+			current_pos = int( header['start'] ) - 1
+			current_step = int( header['step'] )
+			if 'span' in header: current_span = int( header['span'] )
+			else: current_span = 1
+			mode = "fixedStep"
+		elif mode == "bed":
+			fields = line.split()
+			if len( fields ) > 3:
+				if len( fields ) > 5:
+					yield fields[0], int( fields[1] ), int( fields[2] ), fields[5], float( fields[3] )
+				else:
+					yield fields[0], int( fields[1] ), int( fields[2] ), strand, float( fields[3] )
+		elif mode == "variableStep": 
+			fields = line.split()
+			pos = int( fields[0] ) - 1
+			yield current_chrom, pos, pos + current_span, strand, float( fields[1] )
+		elif mode == "fixedStep":
+			yield current_chrom, current_pos, current_pos + current_span, strand, float( line.split()[0] )
+			current_pos += current_step
+		else:
+			raise "Unexpected input line: %s" % line.strip()
+
+def bigwigReader(infile, chrom_sizes=None, bin_size = 2000):
+	'''infile: bigwig format file
+	   chromsize: chrom_name: size, only needed is format is bigwig
+	   format: either 'wiggle' or 'bigwig'
+	   return: chrom, position (0-based), value
+	'''
+	bw_obj = BigWigFile(file=open(infile))
+	for chr_name, chr_size in chrom_sizes.items():
+		for chrom, st, end in BED.tillingBed(chrName = chr_name,chrSize = chr_size,stepSize = bin_size):
+			sig_list = bw_obj.get_as_array(chrom,st,end)
+			if sig_list is None:
+				continue
+			sig_list = numpy.nan_to_num(sig_list)
+			if numpy.sum(sig_list)==0:
+				continue	
+			low_bound = st
+			point_num = 1
+			score = sig_list[0]
+			for value in (sig_list[1:]):
+				if value == score:
+					point_num += 1
+				else:
+					yield(( chrom, low_bound,  low_bound + point_num, score))
+					score = value
+					low_bound = low_bound + point_num
+					point_num = 1
+
+			
 def check_bed12(bedline):
 	'''check if bed12 format is correct or not'''
 	fields = bedline.strip().split()
@@ -969,7 +1048,8 @@ def crossmap_wig_file(mapping, in_file, out_prefix, source_chrom_size, taget_chr
 		printlog (["Liftover wiggle file:", in_file, '==>', out_prefix + '.bgr'])
 		#print >>sys.stderr, 'liftover wiggle format file is strongly discouraged.\nIt is slow and genrated largefile.\nConvert it into bigwig will increase speed and reduce file size'
 		
-		for chr, start, end, score in wig_reader.wig_reader(in_file):
+		for chr, start, end, strand, score in wiggleReader (in_file):
+			#print chr,start,end,score
 			# map_coordinates(mapping, q_chr, q_start, q_end, q_strand = '+', print_match=False):
 			maps = map_coordinates(mapping, chr, start, end, '+')
 			if maps is None:
@@ -1013,7 +1093,7 @@ def crossmap_wig_file(mapping, in_file, out_prefix, source_chrom_size, taget_chr
 	elif in_format.upper() == "BIGWIG":
 		
 		printlog (["Liftover bigwig file:", in_file, '==>', out_prefix + '.bgr'])
-		for chr, start, end, score in wig_reader.wig_reader(in_file, chrom_sizes =source_chrom_size, informat = 'bigwig', bin_size = binSize ):
+		for chr, start, end, score in bigwigReader(in_file, chrom_sizes =source_chrom_size, bin_size = binSize ):
 			if score == 0:	#skip range with score of 0
 				continue
 			maps = map_coordinates(mapping, chr, start, end, '+')
@@ -1226,26 +1306,27 @@ if __name__=='__main__':
 				sys.exit(0)
 		elif sys.argv[1].lower() == 'bam':
 		#def crossmap_bam_file(mapping, chainfile, infile,  outfile_prefix, chrom_size, IS_size=200, IS_std=30, fold=3):	
-			usage="CrossMap.py bam input_chain_file input_bam_file output_file [options]\nNote: If output_file == STDOUT, CrossMap will write BAM file to the screen"
+			usage="CrossMap.py bam input_chain_file input_bam_file output_file [options]\nNote: If output_file == STDOUT or -, CrossMap will write BAM file to the screen"
 			parser = optparse.OptionParser(usage, add_help_option=False)
 			parser.add_option("-m", "--mean", action="store",type="float",dest="insert_size", default=200.0, help="Average insert size of pair-end sequencing (bp). [default=%default]")
 			parser.add_option("-s", "--stdev", action="store",type="float",dest="insert_size_stdev", default=30.0, help="Stanadard deviation of insert size. [default=%default]" )
 			parser.add_option("-t", "--times", action="store",type="float",dest="insert_size_fold", default=3.0, help="A mapped pair is considered as \"proper pair\" if both ends mapped to different strand and the distance between them is less then '-t' * stdev from the mean. [default=%default]")
 			(options,args)=parser.parse_args()
-
-			if len(sys.argv) >= 5:
+			
+			if len(args) >= 3:
 				print >>sys.stderr, "Insert size = %f" % (options.insert_size)
 				print >>sys.stderr, "Insert size stdev = %f" % (options.insert_size_stdev)
 				print >>sys.stderr, "Number of stdev from the mean = %f" % (options.insert_size_fold)
 				
-				chain_file = sys.argv[2]
-				in_file = sys.argv[3]
-				out_file = sys.argv[4]
+				chain_file = args[1]
+				in_file = args[2]
+				out_file = args[3] if len(args) >= 4 else None
 				(mapTree,targetChromSizes, sourceChromSizes) = read_chain_file(chain_file)
-				if sys.argv[4] == "STDOUT":
-					crossmap_bam_file(mapping = mapTree, chainfile = chain_file, infile = in_file, outfile_prefix = None, chrom_size = targetChromSizes, IS_size=options.insert_size, IS_std=options.insert_size_stdev, fold=options.insert_size_fold)			
-				else:
-					crossmap_bam_file(mapping = mapTree, chainfile = chain_file, infile = in_file, outfile_prefix = out_file, chrom_size = targetChromSizes, IS_size=options.insert_size, IS_std=options.insert_size_stdev, fold=options.insert_size_fold)
+				
+				if out_file in ["STDOUT","-"]:
+					out_file = None
+				
+				crossmap_bam_file(mapping = mapTree, chainfile = chain_file, infile = in_file, outfile_prefix = out_file, chrom_size = targetChromSizes, IS_size=options.insert_size, IS_std=options.insert_size_stdev, fold=options.insert_size_fold)
 				
 			else:
 				parser.print_help()

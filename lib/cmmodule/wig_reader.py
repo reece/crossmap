@@ -64,7 +64,9 @@ def wig_reader(infile, chrom_sizes=None, informat='wiggle', bin_size = 2000):
 	if informat.upper()=='WIGGLE':
 		point_num = 1
 		count = 0
-		for fields in bx.wiggle.Reader( infile ):
+		for chrom, start, end, strand, score in bx.wiggle.IntervalReader( infile ):
+			yield (chrom, start, end, score)
+			"""
 			count += 1
 			if count ==1:
 				chrom = fields[0]
@@ -81,7 +83,7 @@ def wig_reader(infile, chrom_sizes=None, informat='wiggle', bin_size = 2000):
 				score = fields[2]
 				up_bound = fields[1]+1
 				point_num = 1
-				
+			"""
 			
 	
 	elif informat.upper() == 'BIGWIG':
@@ -113,14 +115,14 @@ if __name__== '__main__':
 	
 	# test bigwig input
 
-	chromSize_hg18={
-	"chr1" : 247249719,
-	}
+	#chromSize_hg18={
+	#"chr1" : 247249719,
+	#}
 	
-	for a in wig_reader(infile='GSM686950_reverse.hg18.bw', chrom_sizes = chromSize_hg18, informat='bigwig'):
-		print '\t'.join(map(str, a))
+	#for a in wig_reader(infile='GSM686950_reverse.hg18.bw', chrom_sizes = chromSize_hg18, informat='bigwig'):
+	#	print '\t'.join(map(str, a))
 		
 	# test wig input
-	#for a in wig_reader(infile='GSM686950_reverse.hg18.wig', informat='wiggle'):
-	#	print '\t'.join(map(str, a))
+	for a in wig_reader(infile=sys.argv[1], informat='wiggle'):
+		print '\t'.join(map(str, a))
 	
