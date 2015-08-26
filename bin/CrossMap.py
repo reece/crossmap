@@ -36,7 +36,7 @@ __contributor__="Liguo Wang, Hao Zhao"
 __copyright__ = "Copyright 2013, Mayo Clinic"
 __credits__ = []
 __license__ = "GPL"
-__version__="0.2"
+__version__="0.2.1"
 __maintainer__ = "Liguo Wang"
 __email__ = "wang.liguo@mayo.edu; wangliguo78@gmail.com"
 __status__ = "Production"
@@ -104,8 +104,7 @@ def wiggleReader( f ):
 
 def bigwigReader(infile, chrom_sizes=None, bin_size = 2000):
 	'''infile: bigwig format file
-	   chromsize: chrom_name: size, only needed is format is bigwig
-	   format: either 'wiggle' or 'bigwig'
+	   chromsize: chrom_name: size.
 	   return: chrom, position (0-based), value
 	'''
 	bw_obj = BigWigFile(file=open(infile))
@@ -114,8 +113,8 @@ def bigwigReader(infile, chrom_sizes=None, bin_size = 2000):
 			sig_list = bw_obj.get_as_array(chrom,st,end)
 			if sig_list is None:
 				continue
-			sig_list = numpy.nan_to_num(sig_list)
-			if numpy.sum(sig_list)==0:
+			sig_list = np.nan_to_num(sig_list)
+			if np.sum(sig_list)==0:
 				continue	
 			low_bound = st
 			point_num = 1
