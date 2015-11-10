@@ -36,7 +36,7 @@ __contributor__="Liguo Wang, Hao Zhao"
 __copyright__ = "Copyright 2013, Mayo Clinic"
 __credits__ = []
 __license__ = "GPL"
-__version__="0.2.1"
+__version__="0.2.2"
 __maintainer__ = "Liguo Wang"
 __email__ = "wang.liguo@mayo.edu; wangliguo78@gmail.com"
 __status__ = "Production"
@@ -422,9 +422,10 @@ def crossmap_bed_file(mapping, inbed,outfile=None):
 	# check if 'outfile' was set. If not set, print to screen, if set, print to file
 	if outfile is not None:
 		FILE_OUT = open(outfile,'w')
+		UNMAP = open(outfile + '.unmap','w')
 	else:
 		pass
-
+	
 	for line in ireader.reader(inbed):
 		if line.startswith('#'):continue
 		if line.startswith('track'):continue
@@ -437,19 +438,27 @@ def crossmap_bed_file(mapping, inbed,outfile=None):
 		# filter out line less than 3 columns
 		if len(fields)<3:
 			print >>sys.stderr, "Less than 3 fields. skip " + line
+			if outfile:
+				print >>UNMAP, line
 			continue
 		try:
 			int(fields[1])
 		except:
 			print >>sys.stderr, "Start corrdinate is not an integer. skip " + line
-			continue		
+			if outfile:
+				print >>UNMAP, line
+			continue
 		try:
 			int(fields[2])
 		except:
 			print >>sys.stderr, "End corrdinate is not an integer. skip " + line
+			if outfile:
+				print >>UNMAP, line
 			continue
 		if int(fields[1]) > int(fields[2]):
 			print >>sys.stderr, "\"Start\" is larger than \"End\" corrdinate is not an integer. skip " + line
+			if outfile:
+				print >>UNMAP, line
 			continue
 			
 		# deal with bed less than 12 columns
@@ -465,10 +474,13 @@ def crossmap_bed_file(mapping, inbed,outfile=None):
 				
 			a = map_coordinates(mapping, fields[0], int(fields[1]),int(fields[2]),strand)
 			# example of a: [('chr1', 246974830, 246974833,'+'), ('chr1', 248908207, 248908210,'+')]
+
 			try:
 				if len(a) % 2 != 0:
 					if outfile is None:
 						print line + '\tFail'
+					else:
+						print >>UNMAP, line
 					continue
 				if len(a) == 2:
 					
@@ -502,79 +514,74 @@ def crossmap_bed_file(mapping, inbed,outfile=None):
 			except:
 				if outfile is None:
 					print line + '\tFail'
+				else:
+					print >>UNMAP, line
 				continue
 		
-		# deal with bed12
-		if len(fields)==12:
+		# deal with bed12 and bed12+8 (genePred format)
+		if len(fields)==12 or len(fields)==20:
 			strand = fields[5]
-
 			if strand not in ['+','-']:
 				raise Exception("Unknown strand: %s. Can only be '+' or '-'." % strand)
-			fail_flag=0
+			fail_flag=False
 			exons_old_pos = annoGene.getExonFromLine(line)	#[[chr,st,end],[chr,st,end],...]
 			#print exons_old_pos
 			exons_new_pos = []
 			for e_chr, e_start, e_end in exons_old_pos:
 				a = map_coordinates(mapping, e_chr, e_start, e_end, strand)
 				if a is None:
-					fail_flag =1
+					fail_flag =True
 					break
+
 				if len(a) == 2:
 					exons_new_pos.append(a[1]) 
 					# a has two elements, first is query, 2nd is target. # [('chr1', 246974830, 246974833,'+'), ('chr1', 248908207, 248908210,'+')]
 				else:
-					fail_flag =1
+					fail_flag =True
 					break
 			
-			if fail_flag == 1:
-				if outfile is None:
-					print line + '\tFail'
-				else:
-					continue
+			if not fail_flag:
+				# check if all exons were mapped to the same chromosome the same strand
+				chr_id = set()
+				exon_strand = set()
 			
-			# check if all exons were mapped to the same chromosome the same strand
-			chr_id = set()
-			exon_strand = set()
-			
-			for e_chr, e_start, e_end, e_strand in exons_new_pos:
-				chr_id.add(e_chr)
-				exon_strand.add(e_strand)
-			if len(chr_id) != 1 or len(exon_strand) != 1:
-				if outfile is None:
-					print line + '\tFail'
-				else:
-					continue
-						
-			# build new bed 
-			cds_start_offset = int(fields[6]) - int(fields[1])
-			cds_end_offset = int(fields[2]) - int(fields[7])
-			
-			
-			
-			new_chrom = exons_new_pos[0][0]
-			new_chrom_st = exons_new_pos[0][1]
-			new_chrom_end = exons_new_pos[-1][2]
-			new_name = fields[3]
-			new_score = fields[4]
-			new_strand = exons_new_pos[0][3]	
-			new_thickStart = new_chrom_st + cds_start_offset
-			new_thickEnd = new_chrom_end - cds_end_offset
-			new_ittemRgb = fields[8]
-			new_blockCount = len(exons_new_pos)
-			new_blockSizes = ','.join([str(o - n) for m,n,o,p in exons_new_pos])
-			new_blockStarts = ','.join([str(n - new_chrom_st) for m,n,o,p in exons_new_pos])
+				for e_chr, e_start, e_end, e_strand in exons_new_pos:
+					chr_id.add(e_chr)
+					exon_strand.add(e_strand)
+				if len(chr_id) != 1 or len(exon_strand) != 1:
+					fail_flag = True
 				
-			new_bedline = '\t'.join(str(i) for i in (new_chrom,new_chrom_st,new_chrom_end,new_name,new_score,new_strand,new_thickStart,new_thickEnd,new_ittemRgb,new_blockCount,new_blockSizes,new_blockStarts))
-			if check_bed12(new_bedline) is False:
+				if not fail_flag:
+					# build new bed 
+					cds_start_offset = int(fields[6]) - int(fields[1])
+					cds_end_offset = int(fields[2]) - int(fields[7])
+					new_chrom = exons_new_pos[0][0]
+					new_chrom_st = exons_new_pos[0][1]
+					new_chrom_end = exons_new_pos[-1][2]
+					new_name = fields[3]
+					new_score = fields[4]
+					new_strand = exons_new_pos[0][3]	
+					new_thickStart = new_chrom_st + cds_start_offset
+					new_thickEnd = new_chrom_end - cds_end_offset
+					new_ittemRgb = fields[8]
+					new_blockCount = len(exons_new_pos)
+					new_blockSizes = ','.join([str(o - n) for m,n,o,p in exons_new_pos])
+					new_blockStarts = ','.join([str(n - new_chrom_st) for m,n,o,p in exons_new_pos])
+				
+					new_bedline = '\t'.join(str(i) for i in (new_chrom,new_chrom_st,new_chrom_end,new_name,new_score,new_strand,new_thickStart,new_thickEnd,new_ittemRgb,new_blockCount,new_blockSizes,new_blockStarts))
+					if check_bed12(new_bedline) is False:
+						fail_flag = True
+					else:
+						if outfile is None:
+							print line + '\t->\t' + new_bedline
+						else:
+							print >>FILE_OUT, new_bedline
+			
+			if fail_flag:
 				if outfile is None:
 					print line + '\tFail'
 				else:
-					continue
-			else:
-				if outfile is None:
-					print line + '\t->\t' + new_bedline
-				else:
-					print >>FILE_OUT, new_bedline
+					print >>UNMAP, line
 				
 def crossmap_gff_file(mapping, ingff,outfile=None):			
 	'''
@@ -612,6 +619,7 @@ def crossmap_gff_file(mapping, ingff,outfile=None):
     
 	if outfile is not None:
 		FILE_OUT = open(outfile,'w')
+		UNMAP = open(outfile + '.unmap', 'w')
     
 	for line in ireader.reader(ingff):
 		if line.startswith('#'):continue
@@ -632,9 +640,13 @@ def crossmap_gff_file(mapping, ingff,outfile=None):
 			feature_size = end - start
 		except:
 			print >>sys.stderr, 'Cannot recognize \"start\" and \"end\" coordinates. Skip ' + line
+			if outfile:
+				print >>UNMAP, line
 			continue
 		if fields[6] not in ['+','-','.']:
 			print >>sys.stderr, 'Cannot recognize \"strand\". Skip ' + line
+			if outfile:
+				print >>UNMAP, line
 			continue
 		
 		strand = '-' if fields[6] == '-' else '+'
@@ -644,14 +656,20 @@ def crossmap_gff_file(mapping, ingff,outfile=None):
 		if a is None:
 			if outfile is None:
 				print line + '\tfail (no match to target assembly)'
+			else:
+				print >>UNMAP, line
 			continue			
 		if len(a) !=2:
 			if outfile is None:
 				print line + '\tfail (multpile match to target assembly)'
+			else:
+				print >>UNMAP, line
 		else:
 			if (int(a[1][2]) - int(a[1][1])) != feature_size:	# check if it is exact match
 				if outfile is None:
 					print line + '\tfail (not exact match)'
+				else:
+					print >>UNMAP, line
 			fields[0] = a[1][0]			# chrom
 			fields[3] = a[1][1] + 1		# start, 1-based 
 			fields[4] = a[1][2]
