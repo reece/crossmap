@@ -1,8 +1,10 @@
-#!/usr/bin/python
-'''---------------------------------------------------------------------------------------
+#!/usr/bin/env python
+"""
+---------------------------------------------------------------------------------------
 CrossMap: lift over genomics coordinates between assemblies.
 Support BED, GFF/GTF, BAM/SAM, BigWig/Wig, etc.
-------------------------------------------------------------------------------------------'''
+------------------------------------------------------------------------------------------
+"""
 
 import os,sys
 if sys.version_info[0] != 2 or sys.version_info[1] != 7:
@@ -35,14 +37,16 @@ __author__ = "Liguo Wang, Hao Zhao"
 __contributor__="Liguo Wang, Hao Zhao"
 __copyright__ = "Copyright 2013, Mayo Clinic"
 __credits__ = []
-__license__ = "GPL"
-__version__="0.2.2"
+__license__ = "GPLv2"
+__version__="0.2.3"
 __maintainer__ = "Liguo Wang"
-__email__ = "wang.liguo@mayo.edu; wangliguo78@gmail.com"
+__email__ = "wangliguo78@gmail.com"
 __status__ = "Production"
 
 def printlog (mesg_lst):
-	'''print progress into stderr'''
+	"""
+	print progress into stderr
+	"""
 	if len(mesg_lst)==1:
 		msg = "@ " + strftime("%Y-%m-%d %H:%M:%S") + ": " +  mesg_lst[0]
 	else:
@@ -103,9 +107,10 @@ def wiggleReader( f ):
 			raise "Unexpected input line: %s" % line.strip()
 
 def bigwigReader(infile, chrom_sizes=None, bin_size = 2000):
-	'''infile: bigwig format file
-	   chromsize: chrom_name: size.
-	   return: chrom, position (0-based), value
+	'''
+	infile: bigwig format file
+	chromsize: chrom_name: size.
+	return: chrom, position (0-based), value
 	'''
 	bw_obj = BigWigFile(file=open(infile))
 	for chr_name, chr_size in chrom_sizes.items():
@@ -130,7 +135,9 @@ def bigwigReader(infile, chrom_sizes=None, bin_size = 2000):
 
 			
 def check_bed12(bedline):
-	'''check if bed12 format is correct or not'''
+	'''
+	check if bed12 format is correct or not
+	'''
 	fields = bedline.strip().split()
 	if len(fields) !=12:
 		return False
@@ -163,7 +170,9 @@ def check_bed12(bedline):
 	return True
 
 def intersectBed((chr1, st1, end1), (chr2, st2, end2)):
-	'''return intersection of two bed regions'''
+	'''
+	return intersection of two bed regions
+	'''
 	
 	if int(st1) > int(end1) or int(st2) > int(end2):
 		raise Exception ("Start cannot be larger than end")
@@ -174,8 +183,10 @@ def intersectBed((chr1, st1, end1), (chr2, st2, end2)):
 	return (chr1, max(st1, st2), min(end1,end2))
 
 def read_chain_file (chain_file, print_table=False):
-	'''input chain_file could be either plain text, compressed file (".gz", ".Z", ".z", ".bz", ".bz2", ".bzip2"),
-	or a URL pointing to the chain file ("http://", "https://", "ftp://"). If url was used, chain file must be plain text'''
+	'''
+	input chain_file could be either plain text, compressed file (".gz", ".Z", ".z", ".bz", ".bz2", ".bzip2"),
+	or a URL pointing to the chain file ("http://", "https://", "ftp://"). If url was used, chain file must be plain text
+	'''
 	
 	printlog(["Read chain_file: ", chain_file]),
 	maps={}
@@ -262,7 +273,9 @@ def read_chain_file (chain_file, print_table=False):
 	
 
 def map_coordinates(mapping, q_chr, q_start, q_end, q_strand='+', print_match=False):
-	'''Map coordinates from source assembly to target assembly'''
+	'''
+	Map coordinates from source assembly to target assembly
+	'''
 	
 	matches=[]
 	complement ={'+':'-','-':'+'}
@@ -341,7 +354,9 @@ def map_coordinates(mapping, q_chr, q_start, q_end, q_strand='+', print_match=Fa
 	return matches
 	
 def crossmap_vcf_file(mapping, infile,outfile, liftoverfile, refgenome):
-	'''Convert genome coordinate in VCF format.'''
+	'''
+	Convert genome coordinate in VCF format.
+	'''
 	
 	#index refegenome file if it hasn't been done
 	if not os.path.exists(refgenome + '.fai'):
@@ -1045,10 +1060,13 @@ def crossmap_bam_file(mapping, chainfile, infile,  outfile_prefix, chrom_size, I
 	
 	if outfile_prefix is not None:
 		if bam_format:
-			printlog (['Sort "%s" ...' % (outfile_prefix + '.bam')])
-			pysam.sort('-m','1000000000',outfile_prefix + '.bam', outfile_prefix + '.sorted')
-			printlog (['Index "%s" ...' % (outfile_prefix + '.sorted.bam')])
-			pysam.index(outfile_prefix + '.sorted.bam',outfile_prefix + '.sorted.bam.bai')
+			try:
+				printlog (['Sort "%s" ...' % (outfile_prefix + '.bam')])
+				pysam.sort(outfile_prefix + '.bam', outfile_prefix + '.sorted')
+				printlog (['Index "%s" ...' % (outfile_prefix + '.sorted.bam')])
+				pysam.index(outfile_prefix + '.sorted.bam',outfile_prefix + '.sorted.bam.bai')
+			except:
+				printlog(["Warning: ","output BAM file was NOT sorted and indexed."]) 
 	
 	
 

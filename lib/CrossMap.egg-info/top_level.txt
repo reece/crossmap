@@ -1,7 +1,2 @@
-samtools
-pysam
 psyco_full
 cmmodule
-bx_extras
-bx
-tabix
