@@ -38,7 +38,7 @@ __contributor__="Liguo Wang, Hao Zhao"
 __copyright__ = "Copyright 2013, Mayo Clinic"
 __credits__ = []
 __license__ = "GPLv2"
-__version__="0.2.3"
+__version__="0.2.4"
 __maintainer__ = "Liguo Wang"
 __email__ = "wangliguo78@gmail.com"
 __status__ = "Production"
@@ -55,6 +55,14 @@ def printlog (mesg_lst):
 
 def parse_header( line ):
         return dict( [ field.split( '=' ) for field in line.split()[1:] ] )
+
+def revcomp_DNA(dna):
+	"""
+	reverse complement of input DNA sequence.
+	"""
+	complement = {'A': 'T', 'C': 'G', 'G': 'C', 'T': 'A','N':'N','X':'X'}
+	seq = dna.upper()
+	return "".join(complement[base] for base in reversed(seq))
         
 def wiggleReader( f ):
 	"""
@@ -363,6 +371,8 @@ def crossmap_vcf_file(mapping, infile,outfile, liftoverfile, refgenome):
 		printlog(["Creating index for", refgenome])
 		pysam.faidx(refgenome)
 	
+	refFasta = pysam.Fastafile(refgenome)
+	
 	FILE_OUT = open(outfile ,'w')
 	UNMAP = open(outfile + '.unmap','w')
 	
@@ -410,8 +420,10 @@ def crossmap_vcf_file(mapping, infile,outfile, liftoverfile, refgenome):
 				
 				
 				# update ref allele
-				tmp = pysam.faidx(refgenome,str(a[1][0]) + ':' + str(a[1][1]+1) + '-' + str(a[1][2]))
-				fields[3] =tmp[-1].rstrip('\n\r').upper()
+				#tmp = pysam.faidx(refgenome,str(a[1][0]) + ':' + str(a[1][1]+1) + '-' + str(a[1][2]))
+				#fields[3] =tmp[-1].rstrip('\n\r').upper()
+				
+				fields[3] = refFasta.fetch(str(a[1][0]),a[1][1],a[1][2]).upper()
 				
 				if fields[3] != fields[4]:
 					print >>FILE_OUT, '\t'.join(map(str, fields))
@@ -817,7 +829,8 @@ def crossmap_bam_file(mapping, chainfile, infile,  outfile_prefix, chrom_size, I
 				
 				
 				# read 1 is unmapped after conversion	
-				if read1_maps is None:														 
+				if read1_maps is None:
+					# 2 update flag														 
 					new_alignment.flag = new_alignment.flag | 0x4
 					
 					# read2 is unmapped before conversion
@@ -828,20 +841,33 @@ def crossmap_bam_file(mapping, chainfile, infile,  outfile_prefix, chrom_size, I
 					
 					# read2 is unmapped after conversion	
 					elif read2_maps is None:													
-						#new_alignment.flag = new_alignment.flag | 0x8	
-						#old_alignment.tid = name_to_id[samfile.getrname(old_alignment.tid)]				
-						OUT_FILE_UNMAP.write(old_alignment)
-						failed += 1
+						# 2
+						new_alignment.flag = new_alignment.flag | 0x8	
+						# 3
+						new_alignment.tid = -1
+						# 4
+						new_alignment.pos = 0
+						# 5
+						new_alignment.mapq = 255
+						# 6
+						new_alignment.cigar = old_alignment.cigar
+						# 7
+						new_alignment.rnext = -1
+						# 8
+						new_alignment.pnext = 0
+						# 9
+						new_alignment.tlen = 0
+						OUT_FILE.write(new_alignment)
 						continue
-					
+						
 					# read2 is unique mapped
 					elif len(read2_maps) == 2:	
 						# 2											
 						if read2_maps[1][3] == '-': new_alignment.flag = new_alignment.flag | 0x20		
 						# 3
-						new_alignment.tid = name_to_id[read2_maps[1][0]]
+						new_alignment.tid = name_to_id[read2_maps[1][0]]	#recommend to set the RNAME of unmapped read to its mate's
 						# 4
-						new_alignment.pos = 0
+						new_alignment.pos = read2_maps[1][1]				#recommend to set the POS of unmapped read to its mate's
 						# 5
 						new_alignment.mapq = old_alignment.mapq
 						# 6
@@ -849,11 +875,11 @@ def crossmap_bam_file(mapping, chainfile, infile,  outfile_prefix, chrom_size, I
 						# 7
 						new_alignment.rnext = name_to_id[read2_maps[1][0]]
 						# 8
-						new_alignment.pnext =  read2_maps[1][1]	#start
+						new_alignment.pnext = read2_maps[1][1]	#start
 						# 9
 						new_alignment.tlen = 0
+						
 						OUT_FILE.write(new_alignment)
-
 						continue
 					
 					# read2 is multiple mapped
@@ -865,9 +891,9 @@ def crossmap_bam_file(mapping, chainfile, infile,  outfile_prefix, chrom_size, I
 						# 3
 						new_alignment.tid = name_to_id[read2_maps[1][0]]
 						# 4
-						new_alignment.pos = 0
+						new_alignment.pos = read2_maps[1][1]
 						# 5
-						new_alignment.mapq = 255
+						new_alignment.mapq = 255			# mapq not available 
 						# 6
 						new_alignment.cigar = old_alignment.cigar
 						# 7
@@ -882,16 +908,26 @@ def crossmap_bam_file(mapping, chainfile, infile,  outfile_prefix, chrom_size, I
 				# read1 is unique mapped
 				elif len(read1_maps) == 2:
 					
-					# 2
-					if read1_maps[1][3] == '-': new_alignment.flag = new_alignment.flag | 0x10
+					if read1_maps[1][3] == '-':
+						new_alignment.flag = new_alignment.flag | 0x10	
+					
+					if read1_maps[0][3] != read1_maps[1][3]:
+						# 6
+						new_alignment.cigar = old_alignment.cigar[::-1]			#reverse cigar tuple
+						# 10
+						new_alignment.seq = revcomp_DNA(old_alignment.seq)		#reverse complement read sequence
+						# 11
+						new_alignment.qual = old_alignment.qual[::-1]			#reverse quality string
+					elif read1_maps[0][3] == read1_maps[1][3]:
+						# 6
+						new_alignment.cigar = old_alignment.cigar
+						
 					# 3
 					new_alignment.tid = name_to_id[read1_maps[1][0]]	#chrom
 					# 4
 					new_alignment.pos = read1_maps[1][1]	#start
 					# 5
 					new_alignment.mapq = old_alignment.mapq	
-					# 6
-					new_alignment.cigar = old_alignment.cigar
 					
 					# read2 unmapped before or after conversion
 					if (old_alignment.mate_is_unmapped) or (read2_maps is None):
@@ -900,7 +936,7 @@ def crossmap_bam_file(mapping, chainfile, infile,  outfile_prefix, chrom_size, I
 						# 7
 						new_alignment.rnext = name_to_id[read1_maps[1][0]]
 						# 8
-						new_alignment.pnext =  0
+						new_alignment.pnext =  read1_maps[1][1]
 						# 9
 						new_alignment.tlen = 0
 					
@@ -944,15 +980,25 @@ def crossmap_bam_file(mapping, chainfile, infile,  outfile_prefix, chrom_size, I
 					# 2
 					new_alignment.flag = new_alignment.flag | 0x100						
 					# 2
-					if read1_maps[1][3] == '-': new_alignment.flag = new_alignment.flag | 0x10
+					if read1_maps[1][3] == '-':
+						new_alignment.flag = new_alignment.flag | 0x10
+					
+					if read1_maps[0][3] != read1_maps[1][3]:
+						# 6
+						new_alignment.cigar = old_alignment.cigar[::-1]			#reverse cigar tuple
+						# 10
+						new_alignment.seq = revcomp_DNA(old_alignment.seq)		#reverse complement read sequence
+						# 11
+						new_alignment.qual = old_alignment.qual[::-1]			#reverse quality string
+					elif read1_maps[0][3] == read1_maps[1][3]:							
+						new_alignment.cigar = old_alignment.cigar
 					# 3
 					new_alignment.tid = name_to_id[read1_maps[1][0]]	#chrom
 					# 4
 					new_alignment.pos = read1_maps[1][1]	#start	
 					# 5
 					new_alignment.mapq = 255
-					# 6
-					new_alignment.cigar = old_alignment.cigar
+					
 
 					# read2 is unmapped
 					if (old_alignment.mate_is_unmapped) or (read2_maps is None):
@@ -961,7 +1007,7 @@ def crossmap_bam_file(mapping, chainfile, infile,  outfile_prefix, chrom_size, I
 						# 7
 						new_alignment.rnext = name_to_id[read1_maps[1][0]]
 						# 8
-						new_alignment.pnext =  0
+						new_alignment.pnext =  read1_maps[1][1]
 						# 9
 						new_alignment.tlen = 0
 					
@@ -1001,6 +1047,7 @@ def crossmap_bam_file(mapping, chainfile, infile,  outfile_prefix, chrom_size, I
 					#old_alignment.tid = name_to_id[samfile.getrname(old_alignment.tid)]	
 					OUT_FILE_UNMAP.write(old_alignment)	
 					failed += 1
+			
 			# Singel end sequencing
 			else:
 				if old_alignment.is_unmapped:
@@ -1018,40 +1065,110 @@ def crossmap_bam_file(mapping, chainfile, infile,  outfile_prefix, chrom_size, I
 				
 				# unmapped
 				if read_maps is None:
-					#new_alignment.flag = new_alignment.flag | 0x4
-					#old_alignment.tid = name_to_id[samfile.getrname(old_alignment.tid)]	
-					OUT_FILE_UNMAP.write(old_alignment)
-					failed += 1
-					continue
-				if len(read_maps)==2:
+					# 1
+					new_alignment.qname = old_alignment.qname
 					# 2
-					if read_maps[1][3] == '-': 	new_alignment.flag = new_alignment.flag | 0x10
+					new_alignment.flag = new_alignment.flag | 0x4
+					# 3
+					new_alignment.tid = -1
+					# 4
+					new_alignment.pos = 0
+					# 5
+					new_alignment.mapq = 255
+					# 6
+					new_alignment.cigar= old_alignment.cigar
+					# 7
+					new_alignment.rnext = -1
+					# 8
+					new_alignment.pnext = 0
+					# 9
+					new_alignment.tlen = 0
+					# 10
+					new_alignment.seq = old_alignment.seq
+					# 11
+					new_alignment.qual = old_alignment.qual
+					# 12
+					new_alignment.tags = old_alignment.tags
+					OUT_FILE.write(new_alignment)
+					continue
+				
+				# unique mapped
+				if len(read_maps)==2:
+					# 1
+					new_alignment.qname = old_alignment.qname
+					# 2
+					if read1_maps[1][3] == '-':
+						new_alignment.flag = new_alignment.flag | 0x10	
+					if read1_maps[0][3] != read1_maps[1][3]:
+						# 6
+						new_alignment.cigar = old_alignment.cigar[::-1]			#reverse cigar tuple
+						# 10
+						new_alignment.seq = revcomp_DNA(old_alignment.seq)		#reverse complement read sequence
+						# 11
+						new_alignment.qual = old_alignment.qual[::-1]			#reverse quality string
+					else:
+						# 6
+						new_alignment.cigar = old_alignment.cigar
+						# 10
+						new_alignment.seq = old_alignment.seq
+						# 11
+						new_alignment.qual = old_alignment.qual
+						
 					# 3
 					new_alignment.tid = name_to_id[read_maps[1][0]]
 					# 4
 					new_alignment.pos = read_maps[1][1]
 					# 5
 					new_alignment.mapq = old_alignment.mapq
-					# 6
-					new_alignment.cigar = old_alignment.cigar
+					# 7
+					new_alignment.rnext = -1
+					# 8
+					new_alignment.pnext = 0
+					# 9
+					new_alignment.tlen = 0
+
 					OUT_FILE.write(new_alignment)
 					continue
-				if len(read_maps)==2 and len(read_maps) % 2 ==0:
-					# 2
+				
+				#multiple mapped
+				if len(read_maps) > 2 and len(read_maps) % 2 ==0:
+
+					# 1
+					new_alignment.qname = old_alignment.qname
 					new_alignment.flag = new_alignment.flag | 0x100
 					# 2
-					if read_maps[1][3] == '-': 	new_alignment.flag = new_alignment.flag | 0x10
+					if read1_maps[1][3] == '-':
+						new_alignment.flag = new_alignment.flag | 0x10	
+					if read1_maps[0][3] != read1_maps[1][3]:
+						# 6
+						new_alignment.cigar = old_alignment.cigar[::-1]			#reverse cigar tuple
+						# 10
+						new_alignment.seq = revcomp_DNA(old_alignment.seq)		#reverse complement read sequence
+						# 11
+						new_alignment.qual = old_alignment.qual[::-1]			#reverse quality string
+					else:
+						# 6
+						new_alignment.cigar = old_alignment.cigar
+						# 10
+						new_alignment.seq = old_alignment.seq
+						# 11
+						new_alignment.qual = old_alignment.qual
+						
 					# 3
 					new_alignment.tid = name_to_id[read_maps[1][0]]
 					# 4
 					new_alignment.pos = read_maps[1][1]
 					# 5
 					new_alignment.mapq = old_alignment.mapq
-					# 6
-					new_alignment.cigar = old_alignment.cigar
+					# 7
+					new_alignment.rnext = -1
+					# 8
+					new_alignment.pnext = 0
+					# 9
+					new_alignment.tlen = 0
+
 					OUT_FILE.write(new_alignment)
-					continue
-					
+					continue					
 								
 	except StopIteration:
 		printlog(["Done!"])	

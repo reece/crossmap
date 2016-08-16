@@ -4,13 +4,13 @@ distribute_setup.py
 setup.cfg
 setup.py
 bin/CrossMap.py
-data/GRCh37ToHg19.over.chain.gz
+data/GRCh37ToHg19.over.chain
 data/hg17ToHg18.over.chain.gz
 data/hg17ToHg19.over.chain.gz
 data/hg18ToHg17.over.chain.gz
 data/hg18ToHg19.over.chain.gz
 data/hg18ToHg38.over.chain.gz
-data/hg19ToGRCh37.over.chain.gz
+data/hg19ToGRCh37.over.chain
 data/hg19ToHg17.over.chain.gz
 data/hg19ToHg18.over.chain.gz
 data/hg19ToHg38.over.chain.gz
