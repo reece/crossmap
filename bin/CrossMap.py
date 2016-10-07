@@ -38,7 +38,7 @@ __contributor__="Liguo Wang, Hao Zhao"
 __copyright__ = "Copyright 2013, Mayo Clinic"
 __credits__ = []
 __license__ = "GPLv2"
-__version__="0.2.4"
+__version__="0.2.5"
 __maintainer__ = "Liguo Wang"
 __email__ = "wangliguo78@gmail.com"
 __status__ = "Production"
@@ -707,14 +707,44 @@ def crossmap_gff_file(mapping, ingff,outfile=None):
 			else:
 				print >>FILE_OUT, '\t'.join([str(i) for i in fields])
 			
-def crossmap_bam_file(mapping, chainfile, infile,  outfile_prefix, chrom_size, IS_size=200, IS_std=30, fold=3):			
+def crossmap_bam_file(mapping, chainfile, infile,  outfile_prefix, chrom_size, IS_size=200, IS_std=30, fold=3, addtag = True):			
 	'''
 	Convert genome coordinates (in BAM/SAM format) between assemblies.
 	BAM/SAM format: http://samtools.sourceforge.net/
 	chrom_size is target chromosome size
+	
+	if addtag is set to True, will add tags to each alignmnet:
+		Q = QC (QC failed)
+		N = unmapped (originally unmapped or originally mapped but failed to liftover to new assembly)
+		M = multiple mapped (alignment can be liftover to multiple places)
+		U = unique mapped (alignment can be liftover to only 1 place)
+		
+		tags for pair-end sequencing include: 
+		
+			QF: QC failed
+		
+			NN: both read1 and read2 unmapped
+			NU: read1 unmapped, read2 unique mapped
+			NM: read1 unmapped, multiple mapped
+		
+			UN: read1 uniquely mapped, read2 unmap
+			UU: both read1 and read2 uniquely mapped
+			UM: read1 uniquely mapped, read2 multiple mapped
+		
+			MN: read1 multiple mapped, read2 unmapped
+			MU: read1 multiple mapped, read2 unique mapped
+			MM: both read1 and read2 multiple mapped
+		
+		tags for single-end sequencing include: 
+		
+			QF: QC failed
+			SN: unmaped
+			SM: multiple mapped
+			SU: uniquely mapped
+		
 	'''
 	
-	# bam or sam
+	# determine the input file format (BAM or SAM)
 	try:
 		samfile = pysam.Samfile(infile,'rb')
 		if len(samfile.header) ==0:
@@ -728,48 +758,61 @@ def crossmap_bam_file(mapping, chainfile, infile,  outfile_prefix, chrom_size, I
 			sys.exit(1)
 		bam_format = False
 	
-	sam_ori_header = samfile.header
-	comments=['Liftover from original BAM/SAM file: ' + infile]
+	# add comments into BAM/SAM header section
+	if bam_format:
+		comments=['Liftover from original BAM file: ' + infile]
+	else:
+		comments=['Liftover from original SAM file: ' + infile]
 	comments.append('Liftover is based on the chain file: ' + chainfile)
 	
+	sam_ori_header = samfile.header
 	(new_header, name_to_id) = sam_header.bam_header_generator(orig_header = sam_ori_header, chrom_size = chrom_size, prog_name="CrossMap",prog_ver = __version__, format_ver=1.0,sort_type = 'coordinate',co=comments)
 	
+	# 
 	if outfile_prefix is not None:
 		if bam_format:
 			OUT_FILE = pysam.Samfile( outfile_prefix + '.bam', "wb", header = new_header )
-			OUT_FILE_UNMAP = pysam.Samfile( outfile_prefix + '.unmap.bam', "wb", template=samfile )
+			#OUT_FILE_UNMAP = pysam.Samfile( outfile_prefix + '.unmap.bam', "wb", template=samfile )
 			printlog (["Liftover BAM file:", infile, '==>', outfile_prefix + '.bam'])
 		else:
 			OUT_FILE = pysam.Samfile( outfile_prefix + '.sam', "wh", header = new_header )
-			OUT_FILE_UNMAP = pysam.Samfile( outfile_prefix + '.unmap.sam', "wh", template=samfile )
+			#OUT_FILE_UNMAP = pysam.Samfile( outfile_prefix + '.unmap.sam', "wh", template=samfile )
 			printlog (["Liftover SAM file:", infile, '==>',  outfile_prefix + '.sam'])
 	else:
 		if bam_format:
 			OUT_FILE = pysam.Samfile( '-', "wb", header = new_header )
-			OUT_FILE_UNMAP = pysam.Samfile( infile.replace('.bam','') + '.unmap.bam', "wb", template=samfile )
+			#OUT_FILE_UNMAP = pysam.Samfile( infile.replace('.bam','') + '.unmap.bam', "wb", template=samfile )
 			printlog (["Liftover BAM file:", infile])
 		else:
 			OUT_FILE = pysam.Samfile( '-', "w", header = new_header )
-			OUT_FILE_UNMAP = pysam.Samfile( infile.replace('.sam','') + '.unmap.sam', "wh", template=samfile )
-			printlog (["Liftover BAM file:", infile])
-		#print >>sys.stderr, "aa"
-		#sys.exit(2)
-	
+			#OUT_FILE_UNMAP = pysam.Samfile( infile.replace('.sam','') + '.unmap.sam', "wh", template=samfile )
+			printlog (["Liftover SAM file:", infile])
+
+	QF = 0
+	NN = 0
+	NU = 0
+	NM = 0
+	UN = 0
+	UU = 0
+	UM = 0
+	MN = 0
+	MU = 0
+	MM = 0
+	SN = 0
+	SM = 0
+	SU = 0
 	total_item = 0
-	failed = 0
 	try:
 		while(1):
 			total_item += 1
 			new_alignment = pysam.AlignedRead()	# create AlignedRead object
 			old_alignment = samfile.next()
 			
-			#if old_alignment.is_unmapped:
-			#	OUT_FILE_UNMAP.write(old_alignment)
-			#	failed += 1
-			#	continue
+			# qcfailed reads will be written to OUT_FILE_UNMAP for both SE and PE reads
 			if old_alignment.is_qcfail:
-				OUT_FILE_UNMAP.write(old_alignment)
-				failed += 1
+				QF += 1
+				if addtag: old_alignment.set_tag(tag="QF", value=0) 
+				OUT_FILE.write(old_alignment)
 				continue
 			# new_alignment.qqual = old_alignment.qqual	# quality string of read, exclude soft clipped part
 			# new_alignment.qlen = old_alignment.qlen	# length of the "aligned part of read"
@@ -795,26 +838,110 @@ def crossmap_bam_file(mapping, chainfile, infile,  outfile_prefix, chrom_size, I
 			new_alignment.tags = old_alignment.tags		# 12 - columns
 			
 			if old_alignment.is_paired:
-				new_alignment.flag = 0x0001
-				if old_alignment.is_read1: new_alignment.flag = new_alignment.flag | 0x40
-				if old_alignment.is_read2: new_alignment.flag = new_alignment.flag | 0x80
-				
+				new_alignment.flag = 0x0001	#pair-end
+				if old_alignment.is_read1:
+					new_alignment.flag = new_alignment.flag | 0x40
+				elif old_alignment.is_read2:
+					new_alignment.flag = new_alignment.flag | 0x80			
+			
+				#==================================
+				# R1 is originally unmapped
+				#==================================
 				if old_alignment.is_unmapped:
-					OUT_FILE_UNMAP.write(old_alignment)
-					failed += 1
-					continue
+					#------------------------------------
+					# both R1 and R2  unmapped
+					#------------------------------------
+					if old_alignment.mate_is_unmapped:
+						NN += 1
+						if addtag: old_alignment.set_tag(tag="NN", value=0)
+						OUT_FILE.write(old_alignment)
+						continue
+					else:	# originally, read-1 unmapped, read-2 is mapped
+						try:
+							read2_chr = samfile.getrname(old_alignment.rnext)									
+							read2_strand = '-' if old_alignment.mate_is_reverse else '+'
+							read2_start = old_alignment.pnext
+							read2_end = read2_start + 1
+							read2_maps = map_coordinates(mapping, read2_chr, read2_start, read2_end, read2_strand)
+							# [('chr1', 246974830, 246974833, '+' ), ('chr1', 248908207, 248908210, '+' )]
+						except:
+							read2_maps = None
 
-				else:	#old alignment is mapped
+					#------------------------------------
+					# both R1 and R2  unmapped
+					#------------------------------------					
+					if read2_maps is None:
+						NN += 1
+						if addtag: old_alignment.set_tag(tag="NN", value=0)
+						OUT_FILE.write(old_alignment)
+						continue	
+					
+					#------------------------------------
+					# R1 unmapped, R2 unique
+					#------------------------------------						
+					elif len(read2_maps) == 2:							
+						# 2											
+						if read2_maps[1][3] == '-': new_alignment.flag = new_alignment.flag | 0x20		
+						# 3
+						new_alignment.tid = name_to_id[read2_maps[1][0]]	#recommend to set the RNAME of unmapped read to its mate's
+						# 4
+						new_alignment.pos = read2_maps[1][1]				#recommend to set the POS of unmapped read to its mate's
+						# 5
+						new_alignment.mapq = old_alignment.mapq
+						# 6
+						new_alignment.cigar = old_alignment.cigar
+						# 7
+						new_alignment.rnext = name_to_id[read2_maps[1][0]]
+						# 8
+						new_alignment.pnext = read2_maps[1][1]	#start
+						# 9
+						new_alignment.tlen = 0
+						
+						NU += 1
+						if addtag: new_alignment.set_tag(tag="NU", value=0)
+						OUT_FILE.write(new_alignment)
+						continue
+					
+					#------------------------------------
+					# R1 unmapped, R2 multiple
+					#------------------------------------						
+					else:
+						# 2
+						if read2_maps[1][3] == '-': new_alignment.flag = new_alignment.flag | 0x20		
+						# 2
+						new_alignment.flag = new_alignment.flag | 0x100
+						# 3
+						new_alignment.tid = name_to_id[read2_maps[1][0]]
+						# 4
+						new_alignment.pos = read2_maps[1][1]
+						# 5
+						new_alignment.mapq = old_alignment.mapq
+						# 6
+						new_alignment.cigar = old_alignment.cigar
+						# 7
+						new_alignment.rnext = name_to_id[read2_maps[1][0]]
+						# 8
+						new_alignment.pnext =  read2_maps[1][1]	#start
+						# 9
+						new_alignment.tlen = 0
+						
+						NM += 1
+						if addtag: new_alignment.set_tag(tag="NM", value=0)
+						OUT_FILE.write(new_alignment)
+						continue						
+															
+				#==================================
+				# R1 is originally mapped 
+				#==================================				
+				else:
 					try:
 						read1_chr = samfile.getrname(old_alignment.tid)
+						read1_strand = '-' if old_alignment.is_reverse else '+'
+						read1_start = old_alignment.pos
+						read1_end = old_alignment.aend
+						read1_maps = map_coordinates(mapping, read1_chr, read1_start, read1_end, read1_strand)
 					except:
-						OUT_FILE_UNMAP.write(old_alignment)
-						failed += 1
-						continue
-					read1_strand = '-' if old_alignment.is_reverse else '+'
-					read1_start = old_alignment.pos
-					read1_end = old_alignment.aend
-					read1_maps = map_coordinates(mapping, read1_chr, read1_start, read1_end, read1_strand)
+						read1_maps = None
 				
 					if not old_alignment.mate_is_unmapped:
 						try:
@@ -828,39 +955,46 @@ def crossmap_bam_file(mapping, chainfile, infile,  outfile_prefix, chrom_size, I
 							read2_maps = None
 				
 				
-				# read 1 is unmapped after conversion	
+				#------------------------------------
+				# R1 unmapped (failed to liftover)
+				#------------------------------------	
 				if read1_maps is None:
-					# 2 update flag														 
+					# 2 update flag (0x4: segment unmapped)														 
 					new_alignment.flag = new_alignment.flag | 0x4
+					# 3
+					new_alignment.tid = -1
+					# 4
+					new_alignment.pos = 0
+					# 5
+					new_alignment.mapq = 255
+					# 6
+					new_alignment.cigar = old_alignment.cigar
+					# 7
+					new_alignment.rnext = -1
+					# 8
+					new_alignment.pnext = 0
+					# 9
+					new_alignment.tlen = 0
 					
-					# read2 is unmapped before conversion
+					
+					# (1) read2 is unmapped before conversion
 					if old_alignment.mate_is_unmapped:
-						OUT_FILE_UNMAP.write(old_alignment)
-						failed += 1
+						NN += 1
+						if addtag: new_alignment.set_tag(tag="NN", value=0)
+						OUT_FILE.write(new_alignment)
 						continue
 					
-					# read2 is unmapped after conversion	
-					elif read2_maps is None:													
+					# (2) read2 is unmapped after conversion	
+					elif read2_maps is None:										
 						# 2
 						new_alignment.flag = new_alignment.flag | 0x8	
-						# 3
-						new_alignment.tid = -1
-						# 4
-						new_alignment.pos = 0
-						# 5
-						new_alignment.mapq = 255
-						# 6
-						new_alignment.cigar = old_alignment.cigar
-						# 7
-						new_alignment.rnext = -1
-						# 8
-						new_alignment.pnext = 0
-						# 9
-						new_alignment.tlen = 0
+						
+						NN += 1	
+						if addtag: new_alignment.set_tag(tag="NN", value=0)
 						OUT_FILE.write(new_alignment)
 						continue
 						
-					# read2 is unique mapped
+					# (3) read2 is unique mapped
 					elif len(read2_maps) == 2:	
 						# 2											
 						if read2_maps[1][3] == '-': new_alignment.flag = new_alignment.flag | 0x20		
@@ -879,10 +1013,12 @@ def crossmap_bam_file(mapping, chainfile, infile,  outfile_prefix, chrom_size, I
 						# 9
 						new_alignment.tlen = 0
 						
+						NU += 1
+						if addtag: new_alignment.set_tag(tag="NU", value=0)
 						OUT_FILE.write(new_alignment)
 						continue
 					
-					# read2 is multiple mapped
+					# (4) read2 is multiple mapped
 					else:
 						# 2
 						if read2_maps[1][3] == '-': new_alignment.flag = new_alignment.flag | 0x20		
@@ -902,23 +1038,28 @@ def crossmap_bam_file(mapping, chainfile, infile,  outfile_prefix, chrom_size, I
 						new_alignment.pnext =  read2_maps[1][1]	#start
 						# 9
 						new_alignment.tlen = 0
+						
+						NM += 1
+						if addtag:new_alignment.set_tag(tag="NM", value=0)
 						OUT_FILE.write(new_alignment)
 						continue
 				
-				# read1 is unique mapped
+				#------------------------------------
+				# R1 uniquely mapped
+				#------------------------------------
 				elif len(read1_maps) == 2:
 					
 					if read1_maps[1][3] == '-':
 						new_alignment.flag = new_alignment.flag | 0x10	
 					
-					if read1_maps[0][3] != read1_maps[1][3]:
+					if read1_maps[0][3] != read1_maps[1][3]:	# opposite strand
 						# 6
 						new_alignment.cigar = old_alignment.cigar[::-1]			#reverse cigar tuple
 						# 10
 						new_alignment.seq = revcomp_DNA(old_alignment.seq)		#reverse complement read sequence
 						# 11
 						new_alignment.qual = old_alignment.qual[::-1]			#reverse quality string
-					elif read1_maps[0][3] == read1_maps[1][3]:
+					elif read1_maps[0][3] == read1_maps[1][3]:	#  same strand
 						# 6
 						new_alignment.cigar = old_alignment.cigar
 						
@@ -929,7 +1070,7 @@ def crossmap_bam_file(mapping, chainfile, infile,  outfile_prefix, chrom_size, I
 					# 5
 					new_alignment.mapq = old_alignment.mapq	
 					
-					# read2 unmapped before or after conversion
+					# (1) R2 unmapped before or after conversion
 					if (old_alignment.mate_is_unmapped) or (read2_maps is None):
 						# 2
 						new_alignment.flag = new_alignment.flag | 0x8
@@ -939,11 +1080,13 @@ def crossmap_bam_file(mapping, chainfile, infile,  outfile_prefix, chrom_size, I
 						new_alignment.pnext =  read1_maps[1][1]
 						# 9
 						new_alignment.tlen = 0
-					
+						
+						UN += 1
+						if addtag: new_alignment.set_tag(tag="UN", value=0)
 						OUT_FILE.write(new_alignment)
 						continue
 					
-					# read2 is unique mapped
+					# (2) R2 is unique mapped
 					elif len(read2_maps)==2:
 						# 2
 						if read2_maps[1][3] == '-': new_alignment.flag = new_alignment.flag | 0x20
@@ -956,10 +1099,13 @@ def crossmap_bam_file(mapping, chainfile, infile,  outfile_prefix, chrom_size, I
 						# 2
 						if (read2_maps[1][3] != read1_maps[1][3]) and (new_alignment.tlen <= IS_size + fold * IS_std) and (new_alignment.tlen >= IS_size - fold * IS_std):
 							new_alignment.flag = new_alignment.flag | 0x2
+						
+						UU += 1
+						if addtag: new_alignment.set_tag(tag="UU", value=0)
 						OUT_FILE.write(new_alignment)
 						continue
 					
-					# read2 is multiple mapped
+					# (3) R2 is multiple mapped
 					else:
 						# 2 (strand)
 						if read2_maps[1][3] == '-': new_alignment.flag = new_alignment.flag | 0x20
@@ -972,10 +1118,14 @@ def crossmap_bam_file(mapping, chainfile, infile,  outfile_prefix, chrom_size, I
 						# 9
 						new_alignment.tlen = abs(new_alignment.pos - new_alignment.pnext) -1 - old_alignment.alen
 						
+						UM += 1
+						if addtag: new_alignment.set_tag(tag="UM", value=0)
 						OUT_FILE.write(new_alignment)
 						continue
 				
-				# read1 is multiple mapped
+				#------------------------------------
+				# R1 multiple mapped
+				#-----------------------------------
 				elif len(read1_maps) > 2 and len(read1_maps) % 2 ==0:
 					# 2
 					new_alignment.flag = new_alignment.flag | 0x100						
@@ -1000,7 +1150,7 @@ def crossmap_bam_file(mapping, chainfile, infile,  outfile_prefix, chrom_size, I
 					new_alignment.mapq = 255
 					
 
-					# read2 is unmapped
+					# (1) R2 is unmapped
 					if (old_alignment.mate_is_unmapped) or (read2_maps is None):
 						# 2
 						new_alignment.flag = new_alignment.flag | 0x8
@@ -1011,10 +1161,12 @@ def crossmap_bam_file(mapping, chainfile, infile,  outfile_prefix, chrom_size, I
 						# 9
 						new_alignment.tlen = 0
 					
+						MN += 1
+						if addtag: new_alignment.set_tag(tag="MN", value=0)
 						OUT_FILE.write(new_alignment)
 						continue
 					
-					# read2 is unique mapped
+					# (2) read2 is unique mapped
 					elif len(read2_maps)==2:
 						# 2
 						if read2_maps[1][3] == '-': new_alignment.flag = new_alignment.flag | 0x20
@@ -1025,10 +1177,12 @@ def crossmap_bam_file(mapping, chainfile, infile,  outfile_prefix, chrom_size, I
 						# 9						
 						new_alignment.tlen = abs(new_alignment.pos - new_alignment.pnext) -1 - old_alignment.alen
 						
+						MU += 1
+						if addtag: new_alignment.set_tag(tag="MU", value=0)
 						OUT_FILE.write(new_alignment)
 						continue		
 					
-					# read2 is multiple mapped
+					# (3) R2 is multiple mapped
 					else:
 						# 2 (strand)
 						if read2_maps[1][3] == '-': new_alignment.flag = new_alignment.flag | 0x20
@@ -1041,6 +1195,8 @@ def crossmap_bam_file(mapping, chainfile, infile,  outfile_prefix, chrom_size, I
 						# 9
 						new_alignment.tlen = abs(new_alignment.pos - new_alignment.pnext) -1 - old_alignment.alen
 						
+						MM += 1
+						if addtag: new_alignment.set_tag(tag="MM", value=0)
 						OUT_FILE.write(new_alignment)
 						continue				
 				else:
@@ -1050,20 +1206,21 @@ def crossmap_bam_file(mapping, chainfile, infile,  outfile_prefix, chrom_size, I
 			
 			# Singel end sequencing
 			else:
+				# (1) originally unmapped
 				if old_alignment.is_unmapped:
-					OUT_FILE_UNMAP.write(old_alignment)
-					failed +=1
+					SN += 1
+					if addtag: old_alignment.set_tag(tag="SN",value=0)
+					OUT_FILE.write(old_alignment)
 					continue
-				new_alignment.flag = 0
-				read_chr = samfile.getrname(old_alignment.tid)
-				read_strand = '-' if old_alignment.is_reverse else '+'
+				else:
+					new_alignment.flag = 0x0
+					read_chr = samfile.getrname(old_alignment.tid)
+					read_strand = '-' if old_alignment.is_reverse else '+'
+					read_start = old_alignment.pos
+					read_end = old_alignment.aend
+					read_maps = map_coordinates(mapping, read_chr, read_start, read_end, read_strand)
 				
-				read_start = old_alignment.pos
-				read_end = old_alignment.aend
-				
-				read_maps = map_coordinates(mapping, read_chr, read_start, read_end, read_strand)
-				
-				# unmapped
+				# (2) unmapped afte liftover
 				if read_maps is None:
 					# 1
 					new_alignment.qname = old_alignment.qname
@@ -1089,17 +1246,20 @@ def crossmap_bam_file(mapping, chainfile, infile,  outfile_prefix, chrom_size, I
 					new_alignment.qual = old_alignment.qual
 					# 12
 					new_alignment.tags = old_alignment.tags
+					
+					SN += 1
+					if addtag: new_alignment.set_tag(tag="SN",value=0)
 					OUT_FILE.write(new_alignment)
 					continue
 				
-				# unique mapped
+				# (3) unique mapped
 				if len(read_maps)==2:
 					# 1
 					new_alignment.qname = old_alignment.qname
 					# 2
-					if read1_maps[1][3] == '-':
+					if read_maps[1][3] == '-':
 						new_alignment.flag = new_alignment.flag | 0x10	
-					if read1_maps[0][3] != read1_maps[1][3]:
+					if read_maps[0][3] != read_maps[1][3]:
 						# 6
 						new_alignment.cigar = old_alignment.cigar[::-1]			#reverse cigar tuple
 						# 10
@@ -1126,20 +1286,22 @@ def crossmap_bam_file(mapping, chainfile, infile,  outfile_prefix, chrom_size, I
 					new_alignment.pnext = 0
 					# 9
 					new_alignment.tlen = 0
-
+					
+					SU += 1
+					if addtag: new_alignment.set_tag(tag="SU",value=0)
 					OUT_FILE.write(new_alignment)
 					continue
 				
-				#multiple mapped
+				# (4) multiple mapped
 				if len(read_maps) > 2 and len(read_maps) % 2 ==0:
 
 					# 1
 					new_alignment.qname = old_alignment.qname
 					new_alignment.flag = new_alignment.flag | 0x100
 					# 2
-					if read1_maps[1][3] == '-':
+					if read_maps[1][3] == '-':
 						new_alignment.flag = new_alignment.flag | 0x10	
-					if read1_maps[0][3] != read1_maps[1][3]:
+					if read_maps[0][3] != read_maps[1][3]:
 						# 6
 						new_alignment.cigar = old_alignment.cigar[::-1]			#reverse cigar tuple
 						# 10
@@ -1166,25 +1328,44 @@ def crossmap_bam_file(mapping, chainfile, infile,  outfile_prefix, chrom_size, I
 					new_alignment.pnext = 0
 					# 9
 					new_alignment.tlen = 0
-
+					
+					SM += 1
+					if addtag:  new_alignment.set_tag(tag="SM",value=0)
 					OUT_FILE.write(new_alignment)
 					continue					
-								
 	except StopIteration:
 		printlog(["Done!"])	
-	printlog (["Total entries:", str(total_item)])
-	printlog (["Failed to map:", str(failed)])
+	OUT_FILE.close()
 	
 	if outfile_prefix is not None:
 		if bam_format:
 			try:
 				printlog (['Sort "%s" ...' % (outfile_prefix + '.bam')])
-				pysam.sort(outfile_prefix + '.bam', outfile_prefix + '.sorted')
+				pysam.sort("-o",  outfile_prefix + '.sorted.bam', outfile_prefix + '.bam',)
 				printlog (['Index "%s" ...' % (outfile_prefix + '.sorted.bam')])
 				pysam.index(outfile_prefix + '.sorted.bam',outfile_prefix + '.sorted.bam.bai')
 			except:
 				printlog(["Warning: ","output BAM file was NOT sorted and indexed."]) 
-	
+				
+	print "Total alignments:" + str(total_item-1)
+	print "\tQC failed: " + str(QF)
+	if max(NN,NU, NM, UN, UU, UM, MN, MU, MM) > 0:
+
+		print "\tR1 unique, R2 unique (UU): " + str(UU)
+		print "\tR1 unique, R2 unmapp (UN): " + str(UN)
+		print "\tR1 unique, R2 multiple (UM): " + str(UM)
+
+		print "\tR1 multiple, R2 multiple (MM): " + str(MM)
+		print "\tR1 multiple, R2 unique (MU): " + str(MU)
+		print "\tR1 multiple, R2 unmapped (MN): " + str(MN)
+		
+		print "\tR1 unmap, R2 unmap (NN): " + str(NN)
+		print "\tR1 unmap, R2 unique (NU): " + str(NU)
+		print "\tR1 unmap, R2 multiple (NM): " + str(NM)	
+	if max(SN,SU,SM) > 0:
+		print "\tUniquley mapped (SU): " +  str(SU)
+		print "\tMultiple mapped (SM): " +  str(SM)
+		print "\tUnmapped (SN): " + str(SN)
 	
 
 def crossmap_wig_file(mapping, in_file, out_prefix, source_chrom_size, taget_chrom_size, in_format, binSize=100000):
@@ -1463,13 +1644,17 @@ if __name__=='__main__':
 			parser.add_option("-m", "--mean", action="store",type="float",dest="insert_size", default=200.0, help="Average insert size of pair-end sequencing (bp). [default=%default]")
 			parser.add_option("-s", "--stdev", action="store",type="float",dest="insert_size_stdev", default=30.0, help="Stanadard deviation of insert size. [default=%default]" )
 			parser.add_option("-t", "--times", action="store",type="float",dest="insert_size_fold", default=3.0, help="A mapped pair is considered as \"proper pair\" if both ends mapped to different strand and the distance between them is less then '-t' * stdev from the mean. [default=%default]")
+			parser.add_option("-a","--append-tags",action="store_true",dest="add_tags",help="Add tag to each alignment.")
 			(options,args)=parser.parse_args()
 			
 			if len(args) >= 3:
 				print >>sys.stderr, "Insert size = %f" % (options.insert_size)
 				print >>sys.stderr, "Insert size stdev = %f" % (options.insert_size_stdev)
 				print >>sys.stderr, "Number of stdev from the mean = %f" % (options.insert_size_fold)
-				
+				if options.add_tags:
+					print >>sys.stderr, "Add tags to each alignment = %s" % ( options.add_tags)
+				else:
+					print >>sys.stderr, "Add tags to each alignment = %s" % ( False)
 				chain_file = args[1]
 				in_file = args[2]
 				out_file = args[3] if len(args) >= 4 else None
@@ -1477,9 +1662,10 @@ if __name__=='__main__':
 				
 				if out_file in ["STDOUT","-"]:
 					out_file = None
-				
-				crossmap_bam_file(mapping = mapTree, chainfile = chain_file, infile = in_file, outfile_prefix = out_file, chrom_size = targetChromSizes, IS_size=options.insert_size, IS_std=options.insert_size_stdev, fold=options.insert_size_fold)
-				
+				if options.add_tags:
+					crossmap_bam_file(mapping = mapTree, chainfile = chain_file, infile = in_file, outfile_prefix = out_file, chrom_size = targetChromSizes, IS_size=options.insert_size, IS_std=options.insert_size_stdev, fold=options.insert_size_fold,addtag=True)
+				else:
+					crossmap_bam_file(mapping = mapTree, chainfile = chain_file, infile = in_file, outfile_prefix = out_file, chrom_size = targetChromSizes, IS_size=options.insert_size, IS_std=options.insert_size_stdev, fold=options.insert_size_fold,addtag=False)
 			else:
 				parser.print_help()
 		elif sys.argv[1].lower() == 'vcf':

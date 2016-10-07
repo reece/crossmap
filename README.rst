@@ -102,6 +102,23 @@ In practical, the time CrossMap takes increases linearly to the size of input fi
 
 News
 ===================
+
+* 08/18/16: Release version 0.2.4:
+ 
+ * fixed bugs during BAM file conversion:
+ 
+  * When the strand of read changes, the seq filed is reverse complemented and the quality field is reversed. 
+ 
+ * In the output VCF file, if the reference allele field is empty:
+ 
+  * Use CrossMap v0.2.4. Update pysam to the latest version. And make sure chromosome IDs in the reference genome file are like "chr1", "chr2", ... , "chrY" (but not "1", "2", ... ,"chrY", in this case, pysam cannot index your reference genome file for some unknown reasons.). 
+
+* 04/13/16: Release version 0.2.3:
+
+ * Same as v0.2.2.
+ * Two dependency packages bx-python and pysam do not shipped with CrossMap starting from v0.2.3 .
+ * Users could install CrossMap using pip: **pip install CrossMap**. Note: bx-python and pysam will be installed automatically if they haven’t been installed before.
+
 * 11/10/15: Release version 0.2.2: Generate *.unmap files (regions that cannot be unambiguously converted) when converting BED, GTF, GFF files. This version also supports genePred (bed12+8) format. (Thanks for Andrew Yates from EMBL-EBI) 
 * 08/26/15: Release version 0.2.1: Very minor change, same as 0.2.
 * 08/11/15: Release version 0.2: Fixed the bug that CrossMap will not convert wiggle format files due to name collision with bx python.
@@ -776,7 +793,7 @@ to `UCSC liftover tool <http://genome.ucsc.edu/cgi-bin/hgLiftOver>`_ because it 
 used tool to convert genome coordinates.
 
 CrossMap failed to convert 613 intervals, and UCSC liftover tool failed to convert 614
-intervals. All failed intervals were exactly the same except one region (chr2 90542908 90543108).
+intervals. All failed intervals are exactly the same except one region (chr2 90542908 90543108).
 UCSC failed to convert it because this region needs to be split twice:
 
 ==========================   ===========================   ====================================
@@ -787,7 +804,7 @@ chr2 90542908  90543108 -    chr2 90542933 90543001 -      chr2    87414583     
 chr2 90542908  90543108 -    chr2 90543010 90543108 -      chr2    87414276        87414374 -
 ==========================   ===========================   ====================================
 
-For genome intervals that were successfully converted to hg18, the start and end coordinates were
+For genome intervals that were successfully converted to hg18, the start and end coordinates are
 exactly the same between UCSC conversion and CrossMap conversion.
 
 .. image:: _static/CrossMap_vs_UCSC.png
